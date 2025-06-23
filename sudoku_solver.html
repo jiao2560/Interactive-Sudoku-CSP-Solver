@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudoku Solver</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 50px);
+            grid-template-rows: repeat(9, 50px);
+            gap: 2px;
+            margin: 20px auto;
+            padding: 10px;
+            background: #333;
+            border-radius: 10px;
+            width: fit-content;
+        }
+        
+        .cell {
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: bold;
+            background: white;
+            color: #333;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .cell.given {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .cell.solved {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        
+        .cell:nth-child(3n):not(:nth-child(9n)) {
+            border-right: 3px solid #333;
+        }
+        
+        .cell:nth-child(n+19):nth-child(-n+27),
+        .cell:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 3px solid #333;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        .solution-info {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .highlight-row, .highlight-col {
+            background: #ffeb3b !important;
+            color: #333 !important;
+            animation: pulse 1s ease-in-out;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .step-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧩 Sudoku CSP Solver</h1>
+        
+        <div class="controls">
+            <button onclick="solveSudoku()">Solve Puzzle</button>
+            <button onclick="showHeuristics()">Show Heuristics</button>
+            <button onclick="highlightAnswers()">Highlight Row 3 & Col 7</button>
+            <button onclick="resetGrid()">Reset</button>
+        </div>
+        
+        <div class="sudoku-grid" id="sudokuGrid"></div>
+        
+        <div class="solution-info" id="solutionInfo" style="display: none;">
+            <h3>🎯 Solution Found!</h3>
+            <div class="step-info">
+                <strong>Row 3:</strong> <span id="row3"></span>
+            </div>
+            <div class="step-info">
+                <strong>Column 7:</strong> <span id="col7"></span>
+            </div>
+        </div>
+        
+        <div class="solution-info" id="heuristicsInfo" style="display: none;">
+            <h3>🧠 CSP Heuristics Used</h3>
+            <div class="step-info">
+                <strong>1. Most Constraining Variable (MCV):</strong><br>
+                Choose the cell with the fewest possible values first. This reduces the search space quickly.
+            </div>
+            <div class="step-info">
+                <strong>2. Constraint Propagation:</strong><br>
+                After placing a number, immediately eliminate it from all cells in the same row, column, and 3×3 box.
+            </div>
+            <div class="step-info">
+                <strong>3. Arc Consistency (AC-3):</strong><br>
+                Maintain consistency between constraints by reducing domains when conflicts are detected.
+            </div>
+            <div class="step-info">
+                <strong>4. Backtracking Search:</strong><br>
+                When stuck, backtrack to the most recent decision and try the next possible value.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initial puzzle state
+        const initialGrid = [
+            [9,0,0,0,1,0,0,2,0],
+            [0,0,3,0,0,5,1,0,0],
+            [0,1,2,0,3,8,0,0,4],
+            [1,7,0,0,8,0,6,0,2],
+            [0,2,0,4,0,6,0,0,0],
+            [5,0,0,2,0,0,4,0,0],
+            [7,0,0,0,0,0,0,1,0],
+            [0,6,8,0,0,0,0,4,3],
+            [0,0,0,0,4,7,2,0,5]
+        ];
+        
+        let currentGrid = JSON.parse(JSON.stringify(initialGrid));
+        let solvedGrid = null;
+        
+        function createGrid() {
+            const grid = document.getElementById('sudokuGrid');
+            grid.innerHTML = '';
+            
+            for (let i = 0; i < 9; i++) {
+                for (let j = 0; j < 9; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${i}-${j}`;
+                    
+                    if (currentGrid[i][j] !== 0) {
+                        cell.textContent = currentGrid[i][j];
+                        cell.classList.add('given');
+                    }
+                    
+                    grid.appendChild(cell);
+                }
+            }
+        }
+        
+        function isValid(grid, row, col, num) {
+            // Check row
+            for (let x = 0; x < 9; x++) {
+                if (grid[row][x] === num) return false;
+            }
+            
+            // Check column
+            for (let x = 0; x < 9; x++) {
+                if (grid[x][col] === num) return false;
+            }
+            
+            // Check 3x3 box
+            const startRow = row - row % 3;
+            const startCol = col - col % 3;
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 3; j++) {
+                    if (grid[i + startRow][j + startCol] === num) return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        function getPossibleValues(grid, row, col) {
+            if (grid[row][col] !== 0) return [];
+            
+            const possible = [];
+            for (let num = 1; num <= 9; num++) {
+                if (isValid(grid, row, col, num)) {
+                    possible.push(num);
+                }
+            }
+            return possible;
+        }
+        
+        function findMostConstrainedCell(grid) {
+            let minPossible = 10;
+            let bestCell = null;
+            
+            for (let i = 0; i < 9; i++) {
+                for (let j = 0; j < 9; j++) {
+                    if (grid[i][j] === 0) {
+                        const possible = getPossibleValues(grid, i, j);
+                        if (possible.length < minPossible) {
+                            minPossible = possible.length;
+                            bestCell = [i, j, possible];
+                        }
+                    }
+                }
+            }
+            
+            return bestCell;
+        }
+        
+        function solveSudokuRecursive(grid) {
+            const cell = findMostConstrainedCell(grid);
+            if (!cell) return true; // Solved
+            
+            const [row, col, possibleValues] = cell;
+            
+            if (possibleValues.length === 0) return false; // No solution
+            
+            for (const num of possibleValues) {
+                grid[row][col] = num;
+                
+                if (solveSudokuRecursive(grid)) {
+                    return true;
+                }
+                
+                grid[row][col] = 0; // Backtrack
+            }
+            
+            return false;
+        }
+        
+        function solveSudoku() {
+            currentGrid = JSON.parse(JSON.stringify(initialGrid));
+            
+            if (solveSudokuRecursive(currentGrid)) {
+                solvedGrid = JSON.parse(JSON.stringify(currentGrid));
+                displaySolution();
+                showSolutionInfo();
+            } else {
+                alert('No solution found!');
+            }
+        }
+        
+        function displaySolution() {
+            for (let i = 0; i < 9; i++) {
+                for (let j = 0; j < 9; j++) {
+                    const cell = document.getElementById(`cell-${i}-${j}`);
+                    cell.textContent = currentGrid[i][j];
+                    
+                    if (initialGrid[i][j] === 0) {
+                        cell.classList.add('solved');
+                        cell.classList.remove('given');
+                    }
+                }
+            }
+        }
+        
+        function showSolutionInfo() {
+            if (!solvedGrid) return;
+            
+            const row3 = solvedGrid[2].join(', ');
+            const col7 = [];
+            for (let i = 0; i < 9; i++) {
+                col7.push(solvedGrid[i][6]);
+            }
+            
+            document.getElementById('row3').textContent = row3;
+            document.getElementById('col7').textContent = col7.join(', ');
+            document.getElementById('solutionInfo').style.display = 'block';
+        }
+        
+        function showHeuristics() {
+            const info = document.getElementById('heuristicsInfo');
+            info.style.display = info.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        function highlightAnswers() {
+            if (!solvedGrid) {
+                alert('Please solve the puzzle first!');
+                return;
+            }
+            
+            // Clear previous highlights
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('highlight-row', 'highlight-col');
+            });
+            
+            // Highlight row 3 (index 2)
+            for (let j = 0; j < 9; j++) {
+                document.getElementById(`cell-2-${j}`).classList.add('highlight-row');
+            }
+            
+            // Highlight column 7 (index 6)
+            for (let i = 0; i < 9; i++) {
+                document.getElementById(`cell-${i}-6`).classList.add('highlight-col');
+            }
+        }
+        
+        function resetGrid() {
+            currentGrid = JSON.parse(JSON.stringify(initialGrid));
+            solvedGrid = null;
+            document.getElementById('solutionInfo').style.display = 'none';
+            document.getElementById('heuristicsInfo').style.display = 'none';
+            createGrid();
+        }
+        
+        // Initialize the grid
+        createGrid();
+    </script>
+</body>
+</html>
